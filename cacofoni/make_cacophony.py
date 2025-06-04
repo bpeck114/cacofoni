@@ -2,19 +2,24 @@
 
 # Import packages
 import numpy as np
-from astropy.io import fits
 from scipy.fft import fft
-from scipy.signal import windows
-from scipy.io.wavfile import write as write_wav
-import importlib_resources as resources
-import cacofoni.data
+from scripy.io import wavfile
+from scipy.signal.windows import hann
+from astropy.io import fits
+import importlib_resources as pkg_resources
+from cacofoni.config import CacophonyConfig
 
-n_modes = 36 # Number of actuators on ASM
-
-def deriv2D(ima, x, y):
-    return
-
-def make_cacofoni(filename, minfreq, maxfreq, fparm, silent, thresh, closed=closed, modal=modal, laplacian=1, n_modes=36):
+def make_cacofoni(filename, 
+                  minfreq, 
+                  maxfreq,
+                  config=None,
+                  fparm=None,
+                  closed=False,
+                  modal=False,
+                  silent=False,
+                  thresh=None,
+                  compute_laplacian=False):
+    
     """
     Generates the interaction and control matrix from wavefront
     sensor telemetry data.
@@ -22,7 +27,7 @@ def make_cacofoni(filename, minfreq, maxfreq, fparm, silent, thresh, closed=clos
     Inputs:
     -------
     filename : str
-             Location of telemetry file. 
+             Location of telemetry FITS file. 
             
     minfreq : float
             Minimum frequency. 
@@ -30,13 +35,20 @@ def make_cacofoni(filename, minfreq, maxfreq, fparm, silent, thresh, closed=clos
     maxfreq : float
             Maximum frequency, should be 3.6. Hz higher than minimum frequency. 
     
-    closed : bool
-             closed = closed loop. 
-             open = open loop. 
+    Optional Inputs:
+    ----------------
+    config :
+    
     
     modal : bool
-             Modal = modulates actuator by actuator.
-             Zonal = modulates by Zernike modes (tiptilt, focus, etc). 
+             Modal = modulates by Zernike modes (tiptilt, focus, etc).
+             Zonal = modulates actuator by actuator.
+    
+    closed : bool
+            closed = closed loop. 
+            open = open loop. 
+    
+    
     
     fparm : str
     
@@ -46,11 +58,6 @@ def make_cacofoni(filename, minfreq, maxfreq, fparm, silent, thresh, closed=clos
     
     laplacian : bool
               Takes the curvature of the phase. 
-              
-    Optional Inputs:
-    ----------------
-    n_modes : 36
-             Number of actuators on ASM. 
     
     
     Outputs:
@@ -60,14 +67,43 @@ def make_cacofoni(filename, minfreq, maxfreq, fparm, silent, thresh, closed=clos
     cmat:
     """
     
-    if fparam = fparm or resources.files("cacofoni.data").joinpath("imakaparm.txt")
-    else: 
-        fparm = fparm 
+    # Loading in the configuration file for default values and file paths
+    if config is None:
+        config = CacophonyConfig()
     
-    with fits.open(filename) as hdul:
+    # Assigning variables from CacophonyConfig class
+    num_actuators = config.num_actuators
+    fparam = config.fparam_path
+    mirmodes_path = config.mirror_modes_path
+    
+    # Allowing for overrides
+    if fparm is not None:
+        fparam = fparm
+        
+    if modal:
+        mirmodes = fits.getdata(mirmodes_path)
+        mod2act = np.linalg.pinv(mirmodes) 
+        
+    hdul = fits.open(filename)
+    dm_data = hdul[4].data # shape: (64, 2, 27000)
+    wfs_x = hdul[3].data   # shape: (288, 1, 27000)
+    wfs_y = hdul[8].data   # shape: (288, 1, 27000)
+    
+    cb = {
+        'dm' : {
+            'voltages': dm_data[:, 0, :], # shape: (64, 27000)
+            'deltav': dm_data[:, 1, :]    # shape: (64, 27000)
+        },
+        'wfs': {
+            # Stacks X and Y centroids
+            'centroids': np.vstack([wfs_x[:, 0, :], wfs_y[:, 0, :]]) # shape: (576, 27000)
+            
+
         
         return 
    
+
+
 
 """   
 function make_cacophony, filename,minfreq,maxfreq,closed=closed,modal=modal,fparm=fparm,silent=silent,thresh=thresh,laplacian=laplacian
