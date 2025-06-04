@@ -1,0 +1,39 @@
+# FILE: imakaparm.txt
+# Orginally found in ~/data/asm/20240424/ao/imakaparm.txt
+# Now located: cacofoni/data/imakaparm.txt
+
+#IMAKA PARAMETER FILE
+#SAVED BY IMAKA DATA CLIENT ON Wed Apr 24 07:10:53 2024
+
+#HOSTNAME: ehu.ifa.hawaii.edu
+sys_parm.nwfs                    1
+sys_parm.nact                    64
+sys_parm.nsub                    12
+sys_parm.ncb                      2048
+sys_parm.ncbmax                  27000
+sys_parm.ncbskip                     1
+sys_parm.cb_autoname                 1
+sys_parm.sim_dm                      0
+sys_parm.sim_wfscams                 0
+target_parm.name                 TARGET
+target_parm.tRA                     0.00000
+target_parm.tDec                    0.00000
+target_parm.fRA                     0.00000
+target_parm.fDec                    0.00000
+target_parm.nGS                  1
+target_parm.gs               0   GSNAME0       0.00       0.00       0.00
+wfscam_parm.camera_sn        0     20039871
+wfscam_parm.npixx            0          120
+wfscam_parm.npixy            0          120
+wfscam_parm.x0               0          776
+wfscam_parm.y0               0          452
+wfscam_parm.texp             0     -999.000
+wfscam_parm.temp             0     -999.000
+wfscam_parm.emgain           0         -999
+wfscam_parm.skyname          0   NO_SKY_LOADED
+wfscam_parm.flatname         0   NO_FLAT_LOADED
+wfscam_parm.simcamfile       0   NO_SIM_SPOT_FILE
+wfs_parm.pixelweights        0    -4.500000 -3.500000 -2.500000 -1.500000 -0.500000  0.500
+wfs_parm.pixelthreshold      0            0
+wfs_parm.xsub                0         5.00     15.00     25.00     35.00     45.00     55
+wfs_parm.ysub                0         5.00      5.00      5.00      5.00      5.00      5
