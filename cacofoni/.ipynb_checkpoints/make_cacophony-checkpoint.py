@@ -8,6 +8,7 @@ from scipy.signal.windows import hann
 from astropy.io import fits
 import importlib_resources as pkg_resources
 from cacofoni.config import CacophonyConfig
+from imaka_io.irdfits import irdfits
 
 def make_cacofoni(filename, 
                   minfreq, 
@@ -21,8 +22,7 @@ def make_cacofoni(filename,
                   compute_laplacian=False):
     
     """
-    Generates the interaction and control matrix from wavefront
-    sensor telemetry data.
+    Generates the interaction matrix from telemetry data.
     
     Inputs:
     -------
