@@ -13,7 +13,7 @@ from imaka_io.irdfits import irdfits
 def make_cacofoni(filename, 
                   minfreq, 
                   maxfreq,
-                  config=None,
+                  config,
                   fparm=None,
                   closed=False,
                   modal=False,
@@ -27,13 +27,15 @@ def make_cacofoni(filename,
     Inputs:
     -------
     filename : str
-             Location of telemetry FITS file. 
+             Location of telemetry FITS file. This file contains deformable
+             mirror commands and wavefront sensor centroid telemetry. 
             
     minfreq : float
-            Minimum frequency. 
+            Minimum frequency to include in the analysis (Hz). 
     
     maxfreq : float
-            Maximum frequency, should be 3.6. Hz higher than minimum frequency. 
+            Maximum frequency to include.
+            Should be at least 3.6. Hz higher than the minfreq. 
     
     Optional Inputs:
     ----------------
@@ -41,49 +43,57 @@ def make_cacofoni(filename,
     
     
     modal : bool
-             Modal = modulates by Zernike modes (tiptilt, focus, etc).
-             Zonal = modulates actuator by actuator.
+          If True, use modal control (i.e., via mirror modes like Zernikes).
+          If False, use zonal control (i.e., actuator-by-actuator)
     
     closed : bool
-            closed = closed loop. 
-            open = open loop. 
+           If True, use closed-loop delta voltages from DM telemetry.
+           If False, use open-loop absolute voltages. 
     
     
-    
-    fparm : str
+    fparm : str or None
+          Path to parameter file. If not provided, defaults to a preset location.
     
     silent : bool
+           If True, suppress verbose output. 
+           
     
-    thresh : float 
+    thresh : float or None
+           Optional threshold parameter for signal filtering.
     
     laplacian : bool
-              Takes the curvature of the phase. 
+              If True, operate on curvature (Laplacian) of phase. 
     
     
     Outputs:
     --------
     imat:
+         Interaction matrix 
     
     cmat:
     """
     
+    # 0) Setup
     # Loading in the configuration file for default values and file paths
-    if config is None:
-        config = CacophonyConfig()
-    
-    # Assigning variables from CacophonyConfig class
+    config = CacophonyConfig()
+        
+    # 0) Assigning variables from CacophonyConfig class
     num_actuators = config.num_actuators
     fparam = config.fparam_path
-    mirmodes_path = config.mirror_modes_path
+    mirmodes_path = config.mirror_modes_path 
     
-    # Allowing for overrides
+    # 1) Loading in parameter file
     if fparm is not None:
         fparam = fparm
         
+    # 2) If modal mode is requested, load in the mirror mode matrix 
     if modal:
         mirmodes = fits.getdata(mirmodes_path)
         mod2act = np.linalg.pinv(mirmodes) 
+        # Inverting to convert from mode amplitudes to actuator voltages
         
+    # 3) Read in the telemetry FITS file with the parameter file 
+    """
     hdul = fits.open(filename)
     dm_data = hdul[4].data # shape: (64, 2, 27000)
     wfs_x = hdul[3].data   # shape: (288, 1, 27000)
@@ -98,7 +108,7 @@ def make_cacofoni(filename,
             # Stacks X and Y centroids
             'centroids': np.vstack([wfs_x[:, 0, :], wfs_y[:, 0, :]]) # shape: (576, 27000)
             
-
+    """
         
         return 
    

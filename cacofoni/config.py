@@ -7,6 +7,7 @@ from cacofoni import data
 
 @dataclass
 class CacophonyConfig:
+    default_filename: str = "aocb0090.fits"
     param_filename: str = "imakaparm.txt"
     mirror_modes_filename: str = "mm2a_norm.fits"
     num_actuators: int = 36
@@ -20,9 +21,15 @@ class CacophonyConfig:
         return str(importlib_resources.files(data) / filename)
     
     @property
+    def default_filename_path(self):
+        return self.resolve_data_path(self.default_filename)
+    
+    @property
     def fparam_path(self):
-        return self.resolve_data_path(self.fparam_filename)
+        return self.resolve_data_path(self.param_filename)
     
     @property
     def mirror_modes_path(self):
         return self.resolve_data_path(self.mirror_modes_filename)
+    
+    
