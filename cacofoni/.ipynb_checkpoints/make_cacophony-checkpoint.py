@@ -3,18 +3,17 @@
 # Import packages
 import numpy as np
 from scipy.fft import fft
-from scripy.io import wavfile
+from scipy.io import wavfile
 from scipy.signal.windows import hann
 from astropy.io import fits
 import importlib_resources as pkg_resources
 from cacofoni.config import CacophonyConfig
-from imaka_io.irdfits import irdfits
+from cacofoni.imaka_io.irdfits import irdfits
 
-def make_cacofoni(filename, 
+def make_cacofoni(fname, 
                   minfreq, 
                   maxfreq,
-                  config,
-                  fparm=None,
+                  config=CacophonyConfig(),
                   closed=False,
                   modal=False,
                   silent=False,
@@ -26,7 +25,7 @@ def make_cacofoni(filename,
     
     Inputs:
     -------
-    filename : str
+    fname : str
              Location of telemetry FITS file. This file contains deformable
              mirror commands and wavefront sensor centroid telemetry. 
             
@@ -50,10 +49,6 @@ def make_cacofoni(filename,
            If True, use closed-loop delta voltages from DM telemetry.
            If False, use open-loop absolute voltages. 
     
-    
-    fparm : str or None
-          Path to parameter file. If not provided, defaults to a preset location.
-    
     silent : bool
            If True, suppress verbose output. 
            
@@ -74,25 +69,38 @@ def make_cacofoni(filename,
     """
     
     # 0) Setup
-    # Loading in the configuration file for default values and file paths
-    config = CacophonyConfig()
-        
-    # 0) Assigning variables from CacophonyConfig class
-    num_actuators = config.num_actuators
-    fparam = config.fparam_path
-    mirmodes_path = config.mirror_modes_path 
+    # Loading in the configuration file 
+    # with default values and file paths
+    print("Setting up make_cacofoni...\n")
     
-    # 1) Loading in parameter file
-    if fparm is not None:
-        fparam = fparm
+    print("Assumptions from arguments:")
+    print(f"Path to file:              {fname}")
+    print(f"Minimum Frequency:         {minfreq}")
+    print(f"Maximum Frequency:         {maxfreq}")
         
-    # 2) If modal mode is requested, load in the mirror mode matrix 
+    # 0.1) Assigning variables from CacophonyConfig class
+    num_actuators = config.num_actuators
+    param_path = config.fparam_path
+    mirmodes_path = config.mirror_modes_path
+    
+    print("\nAssumptions from configuration file:")
+    print(f"Number of Actuators:       {num_actuators}")
+    print(f"Path to Mirror Modes File: {mirmodes_path}")
+    print(f"Path to Parameter File:    {param_path}")
+   
+    '''
+    # 0.2) If modal mode is requested, load in the mirror mode matrix 
     if modal:
         mirmodes = fits.getdata(mirmodes_path)
         mod2act = np.linalg.pinv(mirmodes) 
         # Inverting to convert from mode amplitudes to actuator voltages
-        
-    # 3) Read in the telemetry FITS file with the parameter file 
+    '''  
+    
+    # 3) Read in the telemetry FITS file with the parameter file
+    
+    
+    return 
+    
     """
     hdul = fits.open(filename)
     dm_data = hdul[4].data # shape: (64, 2, 27000)
@@ -110,7 +118,7 @@ def make_cacofoni(filename,
             
     """
         
-        return 
+        
    
 
 

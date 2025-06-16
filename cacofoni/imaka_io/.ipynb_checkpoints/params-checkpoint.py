@@ -5,8 +5,41 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing import List
 
+def initimakaparmstruct():
+    """
+    
+    
+    Inputs:
+    -------
+    
+    Optional Inputs:
+    ----------------
+    
+    Outputs:
+    --------
+    
+    """
+
+    return
 
 
+def getiparm(fname, keyword):
+    """
+    Search through the parameter file for certain keywords.
+    Returns the remaining content of those lines. 
+    
+    Inputs:
+    -------
+    
+    Optional Inputs:
+    ----------------
+    
+    Outputs:
+    --------
+    
+    """
+    
+    
 
 
 
