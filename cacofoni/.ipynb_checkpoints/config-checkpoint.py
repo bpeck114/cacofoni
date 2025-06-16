@@ -11,10 +11,10 @@ class CacophonyConfig:
     param_filename: str = "imakaparm.txt"
     mirror_modes_filename: str = "mm2a_norm.fits"
     num_actuators: int = 36
-    num_centroids = 288
-    grid_shape: tuple = (12, 12)
-    sampling_rate_hz: float = 996.0
-    output_wavfile: str = "cacophony.wav"
+    #num_centroids = 288
+    #grid_shape: tuple = (12, 12)
+    #sampling_rate_hz: float = 996.0
+    #output_wavfile: str = "cacophony.wav"
     
     # Points path for deafult files to data/
     def resolve_data_path(self, filename: str):

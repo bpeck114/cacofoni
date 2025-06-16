@@ -5,6 +5,7 @@
 from astropy.io import fits
 import numpy as np
 import os 
+from dataclasses import dataclass, field
 from cacofoni.config import CacophonyConfig
 
 def irdfits(fname, 
@@ -76,8 +77,7 @@ def irdfits(fname,
              
         return
     
-
-def initimakadatastruct():
+    
             
 
 """
@@ -288,9 +288,4 @@ FUNCTION initimakaparmstruct, fname
 RETURN, parm
 END
 
-; NAME: irdtxt, filename
-; DESCRIPTION: reads a "standard" imaka parameter TEXT file into an imaka IDL data structure
-; HISTORY:
-;	2015-06-25 - v1.0 - reads FITS file from dataclient v.?
-;+-----------------------------------------------------------------------------
 """
