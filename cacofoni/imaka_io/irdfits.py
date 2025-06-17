@@ -2,198 +2,127 @@
 # Still needs to be tested 
 
 # Import packages
-from astropy.io import fits
 import numpy as np
-import os 
-from dataclasses import dataclass, field
-from cacofoni.config import CacophonyConfig
+from astropy.io import fits
+from cacofoni.imaka_io.initimakadatastruct import initimakadatastruct
+from cacofoni.config import CacofoniConfig
 
-def irdfits(fname, 
-            fparm=None, 
+
+def irdfits(ftele, 
+            fparam,
             exten=None):
     """
-    Reads a imaka telemetry FITS file and returns
-    a structured object with WFS and DM telemetry. 
-    
-    Inputs:
-    -------
-    fname : str
-          Path to FITS file.
-          Example: "/data/asm/20250326/ao/aocb0090.fits"
-    
-    Optional Inputs:
-    ----------------
-    fparm : str or None
-          Path to parameter file.
-          Default is located in: "cacofoni/data/imakaparm.txt"
-        
-    
-    exten : 
-          Specifies which FITS extensions to load.
-          - If None: loads all 8 extensions
-          - If int: load only that exetension
-          - If list: interpreted as 8-element on/off mask
-          - Note: Extension '0' is read every time, primary
-          header/data unit
-    
-    Outputs:
-    ---------
     """
     
-        return
-  
-
-'''
-
-    """
-
-    Parameters
-    ----------
-    fname : str
-        Path to the FITS file.
-    fparm : str
-        Path to the parameter file used for structure setup.
-    silent : bool
-        Suppress warnings if True.
-    exten : list of int (length 8)
-        Flags indicating which FITS extensions to read.
-
-    Returns
-    -------
-    list of dict
-        List of telemetry data structures, one per timestep.
-    """
-    from .initimakadatastruct import initimakadatastruct  # assumed implemented
-    from .sxpar import sxpar  # helper function to extract header keywords
-    
+    # Always use the first (0 index) extension
     if exten is None:
         exten = [1] * 8
     elif isinstance(exten, int):
-        tmp = [0] * 8
-        tmp[0] = 1
-        tmp[exten] = 1
-        exten = tmp
-
-    hdul = fits.open(fname)
+        temp = [0] * 8
+        temp[exten] = 1
+        exten = temp
     
-    # Extension 0: loop data
-    d0 = hdul[0].data
-    h0 = hdul[0].header
-    ntimes = h0['NAXIS2']
-    data = initimakadatastruct(ntimes=ntimes, fparm=fparm)
-    
-    for i in range(ntimes):
-        data[i]['loop']['state'] = d0[0][i]
-        data[i]['loop']['cntr'] = d0[1][i]
-    
-    nwfs = h0.get('NWFS', 0)
-
-    # Extension 1: wfscam rawpixels
-    if exten[1]:
-        try:
-            d1 = hdul[1].data
-            h1 = hdul[1].header
-            if not any("No wfscam" in card for card in h1.values()):
+    # Extension 0: Loop state data (always exists)
+    with fits.open(ftele, no_scale=True, ignore_end=True) as hdul:
+        h0 = hdul[0].header
+        d0 = hdul[0].data
+        
+        ntimes = h0['NAXIS2']
+        nwfs = h0['NWFS']
+        
+        if d0.shape[0] == ntimes and d0.shape[1] == 5:
+            d0 = d0.T  # Now d0.shape = (5, ntimes)
+        
+        data = initimakadatastruct(ntimes=ntimes, fparam=fparam)
+        
+        for t in range(ntimes):
+            data[t]['loop']['state'] = int(d0[0][t])
+            data[t]['loop']['cntr'] = int(d0[1][t])
+            
+        # Extension 1: Raw pixels from WFS cameras
+        if exten[1] and len(hdul) > 1:
+            print("E1: Loading raw pixels from WFS cameras.")
+            if not any("No wfscam (rawpixels) data saved" in c for c in hdul[1].header.cards):
+                d = hdul[1].data
                 for i in range(nwfs):
                     for t in range(ntimes):
-                        data[t]['wfscam'][i]['rawpixels'] = d1[:, :, i, t]
-                        data[t]['wfscam'][i]['timestamp'] = h1.get(f'TSTAMPA{i}', 0)
-                        data[t]['wfscam'][i]['fieldcount'] = 0
-                        data[t]['wfscam'][i]['tsample'] = h1.get(f'TSAMPLE{i}', 0)
-            else:
-                if not silent: print("No wfs camera data saved")
-        except Exception as e:
-            if not silent: print("Extension 1 missing:", e)
+                        data[t]['wfscam'][i]['rawpixels'] = d[:, :, i, t]
+                        data[t]['wfscam'][i]['timestamp'] = h0.get(f'TSTAMPA{i}', 0)
+                        data[t]['wfscam'][i]['tsample'] = h0.get(f'TSAMPLE{i}', 0.0)
 
-    # Extension 2: wfscam processed pixels
-    if exten[2]:
-        try:
-            d2 = hdul[2].data
-            h2 = hdul[2].header
-            if not any("No wfscam" in card for card in h2.values()):
+        # Extension 2: Processed pixels 
+        if exten[2] and len(hdul) > 2:
+            print("E2: Loading processed pixels.")
+            if not any("No wfscam (processed pixels) data saved" in c for c in hdul[2].header.cards):
+                d = hdul[2].data
                 for i in range(nwfs):
                     for t in range(ntimes):
-                        data[t]['wfscam'][i]['pixels'] = d2[:, :, i, t]
-                        data[t]['wfscam'][i]['timestamp'] = h2.get(f'TSTAMPA{i}', 0)
-                        data[t]['wfscam'][i]['fieldcount'] = 0
-                        data[t]['wfscam'][i]['tsample'] = h2.get(f'TSAMPLE{i}', 0)
-            else:
-                if not silent: print("No wfs camera (processed pixels) data saved")
-        except Exception as e:
-            if not silent: print("Extension 2 missing:", e)
-
-    # Extension 3: wfs centroids
-    if exten[3]:
-        try:
-            d3 = hdul[3].data
-            h3 = hdul[3].header
-            if not any("No wfs data" in card for card in h3.values()):
+                        data[t]['wfscam'][i]['pixels'] = d[:, :, i, t]
+                        data[t]['wfscam'][i]['timestamp'] = h0.get(f'TSTAMPA{i}', 0)
+                        data[t]['wfscam'][i]['tsample'] = h0.get(f'TSAMPLE{i}', 0.0)
+        else:
+            print("SKIPPING. E2: Loading processed pixels.")
+                        
+        # Extension 3: Centroids
+        if exten[3] and len(hdul) > 3:
+            print("E3: Loading centroids.")
+            if not any("No wfs data saved" in c for c in hdul[3].header.cards):
+                d = hdul[3].data
                 for i in range(nwfs):
                     for t in range(ntimes):
-                        data[t]['wfs'][i]['centroids'] = d3[:, i, t]
-            else:
-                if not silent: print("No wfs data saved")
-        except Exception as e:
-            if not silent: print("Extension 3 missing:", e)
-
-    # Extension 4: dm voltages
-    if exten[4]:
-        try:
-            d4 = hdul[4].data
-            h4 = hdul[4].header
-            if not any("No dm data" in card for card in h4.values()):
+                        data[t]['wfs'][i]['centroids'] = d[:, i, t]
+        else:
+            print("SKIPPING. E3: Loading centroids.")
+                        
+        
+        # Extension 4: DM voltages
+        if exten[4] and len(hdul) > 4:
+            print("E4: Loading DM voltages.")
+            if not any("No dm data saved" in c for c in hdul[4].header.cards):
+                d = hdul[4].data
                 for t in range(ntimes):
-                    data[t]['dm']['deltav'] = d4[:, 0, t]
-                    data[t]['dm']['voltages'] = d4[:, 1, t]
-            else:
-                if not silent: print("No dm data saved")
-        except Exception as e:
-            if not silent: print("Extension 4 missing:", e)
-
-    # Extension 5: average wfscam pixels
-    if exten[5]:
-        try:
-            d5 = hdul[5].data
-            h5 = hdul[5].header
-            if not any("No average wfscam" in card for card in h5.values()):
+                    data[t]['dm']['deltav'] = d[:, 0, t]
+                    data[t]['dm']['voltages'] = d[:, 1, t]
+        else:
+            print("SKIPPING. E4: Loading DM voltages.")
+                    
+        # Extension 5: Average wfscam data
+        if exten[5] and len(hdul) > 5:
+            print("E5: Loading average WFS camera data.")
+            if not any("No average wfscam data saved" in c for c in hdul[5].header.cards):
+                d = hdul[5].data
                 for i in range(nwfs):
                     for t in range(ntimes):
-                        data[t]['wfscam'][i]['avepixels'] = d5[:, :, i]
-            else:
-                if not silent: print("No average wfs camera data saved")
-        except Exception as e:
-            if not silent: print("Extension 5 missing:", e)
-
-    # Extension 6: average wfs centroids
-    if exten[6]:
-        try:
-            d6 = hdul[6].data
-            h6 = hdul[6].header
-            if not any("No average wfs" in card for card in h6.values()):
+                        data[t]['wfscam'][i]['avepixels'] = d[:, :, i]
+        else:
+            print("SKIPPING. E5: Loading average WFS camera data.")
+                        
+        
+        # Extension 6: Average WFS data
+        if exten[6] and len(hdul) > 6:
+            print("E6: Loading average WFS data.")
+            if not any("No average wfs data saved" in c for c in hdul[6].header.cards):
+                d = hdul[6].data
                 for i in range(nwfs):
                     for t in range(ntimes):
-                        data[t]['wfs'][i]['avecentroids'] = d6[:, i]
-            else:
-                if not silent: print("No average wfs data saved")
-        except Exception as e:
-            if not silent: print("Extension 6 missing:", e)
-
-    # Extension 7: average dm voltages
-    if exten[7]:
-        try:
-            d7 = hdul[7].data
-            h7 = hdul[7].header
-            if not any("No average dm" in card for card in h7.values()):
+                        data[t]['wfs'][i]['avecentroids'] = d[:, i]
+        else:
+            print("SKIPPING. E6: Loading average WFS data.")
+                        
+        # Extension 7: Average dm data
+        if exten[7] and len(hdul) > 7:
+            print("E7: Loading average DM data.")
+            if not any("No average dm data saved" in c for c in hdul[7].header.cards):
+                d = hdul[7].data
                 for t in range(ntimes):
-                    data[t]['dm']['avevoltages'] = d7
-            else:
-                if not silent: print("No average dm data saved")
-        except Exception as e:
-            if not silent: print("Extension 7 missing:", e)
-
-    hdul.close()
+                    data[t]['dm']['avevoltages'] = d
+                    
+        else:
+            print("SKIPPING. E7: Loading average DM data.")
+    
     return data
-'''
+
+
     
             
 

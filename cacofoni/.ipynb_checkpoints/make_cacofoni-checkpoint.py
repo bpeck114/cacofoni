@@ -2,18 +2,16 @@
 
 # Import packages
 import numpy as np
-from scipy.fft import fft
-from scipy.io import wavfile
-from scipy.signal.windows import hann
 from astropy.io import fits
-import importlib_resources as pkg_resources
-from cacofoni.config import CacophonyConfig
+from cacofoni.config import CacofoniConfig
 from cacofoni.imaka_io.irdfits import irdfits
+from cacofoni.utils.file_utils import get_valid_path
 
-def make_cacofoni(fname, 
-                  minfreq, 
-                  maxfreq,
-                  config=CacophonyConfig(),
+
+def make_cacofoni(ftele=None, 
+                  fparam=None,
+                  fmirror=None,
+                  config=CacofoniConfig(),
                   closed=False,
                   modal=False,
                   silent=False,
@@ -21,83 +19,45 @@ def make_cacofoni(fname,
                   compute_laplacian=False):
     
     """
-    Generates the interaction matrix from telemetry data.
-    
-    Inputs:
-    -------
-    fname : str
-             Location of telemetry FITS file. This file contains deformable
-             mirror commands and wavefront sensor centroid telemetry. 
-            
-    minfreq : float
-            Minimum frequency to include in the analysis (Hz). 
-    
-    maxfreq : float
-            Maximum frequency to include.
-            Should be at least 3.6. Hz higher than the minfreq. 
-    
-    Optional Inputs:
-    ----------------
-    config :
-    
-    
-    modal : bool
-          If True, use modal control (i.e., via mirror modes like Zernikes).
-          If False, use zonal control (i.e., actuator-by-actuator)
-    
-    closed : bool
-           If True, use closed-loop delta voltages from DM telemetry.
-           If False, use open-loop absolute voltages. 
-    
-    silent : bool
-           If True, suppress verbose output. 
-           
-    
-    thresh : float or None
-           Optional threshold parameter for signal filtering.
-    
-    laplacian : bool
-              If True, operate on curvature (Laplacian) of phase. 
-    
-    
-    Outputs:
-    --------
-    imat:
-         Interaction matrix 
-    
-    cmat:
+
+
     """
     
     # 0) Setup
-    # Loading in the configuration file 
-    # with default values and file paths
-    print("Setting up make_cacofoni...\n")
+    # Load in necessary files 
+    print("Setting up make_cacofoni...")
     
-    print("Assumptions from arguments:")
-    print(f"Path to file:              {fname}")
-    print(f"Minimum Frequency:         {minfreq}")
-    print(f"Maximum Frequency:         {maxfreq}")
-        
-    # 0.1) Assigning variables from CacophonyConfig class
-    num_actuators = config.num_actuators
-    param_path = config.fparam_path
-    mirmodes_path = config.mirror_modes_path
+    # If user gives a path, checks if path exists
+    # If user does NOT give a path, checks if default path exists
+    ptele   = get_valid_path(ftele, config.telemetry_filename) # (User defined path to file, default path to file)
+    pparam  = get_valid_path(fparam, config.param_filename)
     
-    print("\nAssumptions from configuration file:")
-    print(f"Number of Actuators:       {num_actuators}")
-    print(f"Path to Mirror Modes File: {mirmodes_path}")
-    print(f"Path to Parameter File:    {param_path}")
-   
-    '''
-    # 0.2) If modal mode is requested, load in the mirror mode matrix 
+    print("\nFile Paths:")
+    print(f"Telemetry File:      {ptele}")
+    print(f"Parameter File:      {pparam}")
+    
+    print("\nAssumptions:") # From configuration file 
+    print(f"Number of Actuators: {config.num_actuators}")
+    print(f"Minimum Frequency:   {config.minimum_frequency}")
+    print(f"Maximum Frequency:   {config.maximum_frequency}")
+    
+    # Checks if modal is True
+    # If True, checks if mirror modes file exists (like above)
     if modal:
-        mirmodes = fits.getdata(mirmodes_path)
-        mod2act = np.linalg.pinv(mirmodes) 
-        # Inverting to convert from mode amplitudes to actuator voltages
-    '''  
-    
-    # 3) Read in the telemetry FITS file with the parameter file
-    
+        print("\nMode (M/Z): Modal") # Loads in mirror mode matrix
+        mirror_modes_path = get_valid_path(fmirror, config.mirror_modes_filename)
+        
+        print(f"Mirror Modes File:  {mirror_modes_path}")
+        
+        # Inverts to convert from mode amplitudes to actuator voltages
+        mirmodes = fits.getdata(mirror_modes_path)
+        mod2act = np.linalg.pinv(mirmodes)
+    else:
+        print("\nMode (M/Z): Zonal")
+        
+    # 1) Load the FITS telemetry and parameter structure with irdfits
+    exten = config.extension
+    cb = irdfits(ptele, pparam, exten)
     
     return 
     

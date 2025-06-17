@@ -1,35 +1,23 @@
 # FILE: config.py
+# Contains default configuration values and path
+# Note: The files are assumed to be in data/.
 
-from dataclasses import dataclass
-from pathlib import Path
-import importlib_resources
-from cacofoni import data
+from dataclasses import dataclass, field
 
 @dataclass
-class CacophonyConfig:
-    default_filename: str = "aocb0090.fits"
+class CacofoniConfig:
+    telemetry_filename: str = "aocb0090.fits"
     param_filename: str = "imakaparm.txt"
     mirror_modes_filename: str = "mm2a_norm.fits"
+    minimum_frequency: float = 4.0
+    maximum_frequency: float = 10.0
+    
     num_actuators: int = 36
-    #num_centroids = 288
-    #grid_shape: tuple = (12, 12)
-    #sampling_rate_hz: float = 996.0
-    #output_wavfile: str = "cacophony.wav"
+    nwfs_max: int = 5
     
-    # Points path for deafult files to data/
-    def resolve_data_path(self, filename: str):
-        return str(importlib_resources.files(data) / filename)
-    
-    @property
-    def default_filename_path(self):
-        return self.resolve_data_path(self.default_filename)
-    
-    @property
-    def fparam_path(self):
-        return self.resolve_data_path(self.param_filename)
-    
-    @property
-    def mirror_modes_path(self):
-        return self.resolve_data_path(self.mirror_modes_filename)
-    
+    extension: list = None  
+
+    def __post_init__(self):
+        if self.extension is None:
+            self.extension = [1, 0, 0, 1, 1, 1, 1, 1]
     
