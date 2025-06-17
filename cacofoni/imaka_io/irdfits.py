@@ -10,7 +10,6 @@ from cacofoni.config import CacophonyConfig
 
 def irdfits(fname, 
             fparm=None, 
-            silent=False, 
             exten=None):
     """
     Reads a imaka telemetry FITS file and returns
@@ -27,9 +26,7 @@ def irdfits(fname,
     fparm : str or None
           Path to parameter file.
           Default is located in: "cacofoni/data/imakaparm.txt"
-          
-    silent : bool
-           If True, suppress warning messages. 
+        
     
     exten : 
           Specifies which FITS extensions to load.
@@ -43,40 +40,160 @@ def irdfits(fname,
     ---------
     """
     
-    # 1) If no parameter file path given, goes with the default
-    if fparm is None:
-        fparm = CacophonyConfig.fparam_path
-        print(f"Parameter File: {CacophonyConfig.fparam_path}")
-        
-    # 2) Interpret the `exten' parameter
+        return
+  
+
+'''
+
+    """
+
+    Parameters
+    ----------
+    fname : str
+        Path to the FITS file.
+    fparm : str
+        Path to the parameter file used for structure setup.
+    silent : bool
+        Suppress warnings if True.
+    exten : list of int (length 8)
+        Flags indicating which FITS extensions to read.
+
+    Returns
+    -------
+    list of dict
+        List of telemetry data structures, one per timestep.
+    """
+    from .initimakadatastruct import initimakadatastruct  # assumed implemented
+    from .sxpar import sxpar  # helper function to extract header keywords
+    
     if exten is None:
-        # If no extension list is given, defaults to all 8 on
         exten = [1] * 8
     elif isinstance(exten, int):
-        # If a single extension number is given, make a full list
-        # with only that one on. 
-        tmp_exten = [0] * 8
-        tmp_exten[0] = 1  # always read extension 0
-        tmp_exten[exten] = 1
-        exten = tmp_exten
-    elif isinstance(exten, list) and len(exten) !=8:
-        raise ValueError("exten must be an 8-element list, an integer, or None")
-        
-    # 3) Read in extension 0
-    with fits.open(fname) as hdul:
-        ext0 = hdul[0]
-        d0 = ext0.data # shape: (2, NTIMES)
-        h0 = ext0.header 
-        
-        ntimes = h0.get('NAXIS2')
-        if ntimes is None:
-            raise ValueError("Missing NAXIS2 in primary header — cannot determine number of time steps.")
-            
-        # 4) Initalize the full telemetry data structure 
-        
-             
-        return
+        tmp = [0] * 8
+        tmp[0] = 1
+        tmp[exten] = 1
+        exten = tmp
+
+    hdul = fits.open(fname)
     
+    # Extension 0: loop data
+    d0 = hdul[0].data
+    h0 = hdul[0].header
+    ntimes = h0['NAXIS2']
+    data = initimakadatastruct(ntimes=ntimes, fparm=fparm)
+    
+    for i in range(ntimes):
+        data[i]['loop']['state'] = d0[0][i]
+        data[i]['loop']['cntr'] = d0[1][i]
+    
+    nwfs = h0.get('NWFS', 0)
+
+    # Extension 1: wfscam rawpixels
+    if exten[1]:
+        try:
+            d1 = hdul[1].data
+            h1 = hdul[1].header
+            if not any("No wfscam" in card for card in h1.values()):
+                for i in range(nwfs):
+                    for t in range(ntimes):
+                        data[t]['wfscam'][i]['rawpixels'] = d1[:, :, i, t]
+                        data[t]['wfscam'][i]['timestamp'] = h1.get(f'TSTAMPA{i}', 0)
+                        data[t]['wfscam'][i]['fieldcount'] = 0
+                        data[t]['wfscam'][i]['tsample'] = h1.get(f'TSAMPLE{i}', 0)
+            else:
+                if not silent: print("No wfs camera data saved")
+        except Exception as e:
+            if not silent: print("Extension 1 missing:", e)
+
+    # Extension 2: wfscam processed pixels
+    if exten[2]:
+        try:
+            d2 = hdul[2].data
+            h2 = hdul[2].header
+            if not any("No wfscam" in card for card in h2.values()):
+                for i in range(nwfs):
+                    for t in range(ntimes):
+                        data[t]['wfscam'][i]['pixels'] = d2[:, :, i, t]
+                        data[t]['wfscam'][i]['timestamp'] = h2.get(f'TSTAMPA{i}', 0)
+                        data[t]['wfscam'][i]['fieldcount'] = 0
+                        data[t]['wfscam'][i]['tsample'] = h2.get(f'TSAMPLE{i}', 0)
+            else:
+                if not silent: print("No wfs camera (processed pixels) data saved")
+        except Exception as e:
+            if not silent: print("Extension 2 missing:", e)
+
+    # Extension 3: wfs centroids
+    if exten[3]:
+        try:
+            d3 = hdul[3].data
+            h3 = hdul[3].header
+            if not any("No wfs data" in card for card in h3.values()):
+                for i in range(nwfs):
+                    for t in range(ntimes):
+                        data[t]['wfs'][i]['centroids'] = d3[:, i, t]
+            else:
+                if not silent: print("No wfs data saved")
+        except Exception as e:
+            if not silent: print("Extension 3 missing:", e)
+
+    # Extension 4: dm voltages
+    if exten[4]:
+        try:
+            d4 = hdul[4].data
+            h4 = hdul[4].header
+            if not any("No dm data" in card for card in h4.values()):
+                for t in range(ntimes):
+                    data[t]['dm']['deltav'] = d4[:, 0, t]
+                    data[t]['dm']['voltages'] = d4[:, 1, t]
+            else:
+                if not silent: print("No dm data saved")
+        except Exception as e:
+            if not silent: print("Extension 4 missing:", e)
+
+    # Extension 5: average wfscam pixels
+    if exten[5]:
+        try:
+            d5 = hdul[5].data
+            h5 = hdul[5].header
+            if not any("No average wfscam" in card for card in h5.values()):
+                for i in range(nwfs):
+                    for t in range(ntimes):
+                        data[t]['wfscam'][i]['avepixels'] = d5[:, :, i]
+            else:
+                if not silent: print("No average wfs camera data saved")
+        except Exception as e:
+            if not silent: print("Extension 5 missing:", e)
+
+    # Extension 6: average wfs centroids
+    if exten[6]:
+        try:
+            d6 = hdul[6].data
+            h6 = hdul[6].header
+            if not any("No average wfs" in card for card in h6.values()):
+                for i in range(nwfs):
+                    for t in range(ntimes):
+                        data[t]['wfs'][i]['avecentroids'] = d6[:, i]
+            else:
+                if not silent: print("No average wfs data saved")
+        except Exception as e:
+            if not silent: print("Extension 6 missing:", e)
+
+    # Extension 7: average dm voltages
+    if exten[7]:
+        try:
+            d7 = hdul[7].data
+            h7 = hdul[7].header
+            if not any("No average dm" in card for card in h7.values()):
+                for t in range(ntimes):
+                    data[t]['dm']['avevoltages'] = d7
+            else:
+                if not silent: print("No average dm data saved")
+        except Exception as e:
+            if not silent: print("Extension 7 missing:", e)
+
+    hdul.close()
+    return data
+'''
     
             
 
@@ -185,107 +302,3 @@ END
 """
 
 
-
-
-"""
-; 
-; NAME:  initimakaparmstruct
-; DESCRIPTION:  sets up an IDL structure for imaka parameters
-; HISTORY:  
-;  2015-06-25 - v0.25  - in sync with v0.25 of imaka.h
-;+-----------------------------------------------------------------------------
-FUNCTION initimakaparmstruct, fname
-
-    	IF ( getiparm(fname, 'nsub', str) ) THEN NSUB = (FIX(str))[0]
-	NSUBTOTAL = NSUB*NSUB
-    	IF ( getiparm(fname, 'nact', str) ) THEN NACT = (FIX(str))[0]
-    	IF ( getiparm(fname, 'nwfs', str) ) THEN NWFS = (FIX(str))[0]
-	npixx = INTARR(NWFS)
-	rc = getiparm(fname, 'npixx', str) 
-    	FOR i=0,NWFS-1 DO npixx[i] =  (FIX(STRSPLIT(str[i],/EXTRACT)))[1]
-	IF ( TOTAL(npixx) NE NWFS*npixx[0] ) THEN PRINT, 'Error in NPIXX'
-	NPIXX = npixx[0]
-    	NPIXPERSUB = FLOAT(npixx)/nsub
-    
-    	;; MAYBE GET THESE FROM lp_parm READ...
-    	NWFSMAX = 5
-    	NPIXPERFRAME = (NSUB*NPIXPERSUB)^2.
-
-    ;; FIRST WE SETUP STRUCTURES THAT MATCH THE imaka C CODE
-
-	;typedef struct gs_parm {
-	;	char  name[NAMEMAXCHAR];
-	;	float mag;
-	;	float dRA;			// Offset in arcseconds to GS
-	;	float dDec;			// (dRA, dDec)
-	;} gs_parm;
-	gs_parm = {gsparms, name:"", mag:0.0, dRA:0.0, dDec:0.0}
-    	gs = REPLICATE({gsparms}, NWFSMAX) 
-
-	;typedef struct target_parm {
-	;	char name[NAMEMAXCHAR];  // Name of target
-	;	float tRA;			// RA, Dec of center target
-	;	float tDec;				
-	;	float fRA;			// RA,Dec of center of field
-	;	float fDec;
-	;	int nGS;			     // number of GSs
-	;	gs_parm	gs[NWFSMAX];	// structure for each GS
-	;} target_parm;
-	target_parm = {targetparms, name:"", tRA:0., tDec:0., fRA:0., fDec:0., nGS:0, gs: gs}
-
-	;typedef struct wfscam_parm {
-	;	int camera_sn;		     // Serial number of WFS camera
-	;	int npixx;			// camera width of ROI
-	;	int npixy;  			// camera height of ROI
-	;	int x0;				// camera left of ROI
-	;	int y0;				// camera bottom of ROI
-	;	float texp;			// camera exposure time of WFS camera (msec)
-	;	float temp;			// camera set temperature of WFS camera
-	;	int emgain;			// camera numeric EM gain (not true EM gain)
-	;	char skyname[NAMEMAXCHAR];    // name of sky frame
-	;	char flatname[NAMEMAXCHAR];   // name of flat calibration file
-	;} wfscam_parm;
-	wfscam_parm = {wfscamparms, camera_sn: 0, npixx: 0, npixy: 0, x0: 0, y0: 0, $
-					texp:0.0, temp:0.0, emgain: 0, skyname:"", flatname:"" }
-    	wfscam = REPLICATE({wfscamparms}, NWFSMAX) 
-
-	;typedef struct wfs_parm {
-	;     float pixelweights[NPIXPERSUB];   // pixel centroid weights
-	;     int pixelthreshold;;            // pixel intensity threshold
-	;	float xsub[NSUB*NSUB];		// pixel for the lower-left corner of subap
-	;	float ysub[NSUB*NSUB];		// subap LL pixel locations 
-	;	char centroidoffsetname[NAMEMAXCHAR];	// name of centroid offset
-	;} wfs_parm;
-	wfs_parm = {wfsparms, pixelweights: FLTARR(NPIXPERSUB), pixelthreshold: 0., $
-				xsub: FLTARR(NSUB*NSUB), ysub: FLTARR(NSUB*NSUB), centroidoffsetname: ""}
-    	wfs = REPLICATE({wfsparms}, NWFSMAX) 
-
-	;typedef struct dm_parm {
-	;	float xact[NACT];    // x,y positions of each actuator in pupil space
-	;	float yact[NACT];
-	;} dm_parm;
-	dm_parm = {dmparms, xact: FLTARR(NACT), yact: FLTARR(NACT), voltmax:0.0}
-
-	;typedef struct loop_parm {
-	;	unsigned long niter;          // maximum number of loop cycles to run
-     ;	float gaini;     	// servo integrator gain (normally =1 for no leaky)
-	;	float gainp;		// servo proportional gain (gainp*error)
-	;	float gaind;		// servo derivative gain (gaind*(derror/dt) Not used.
-	;	char imatname[NAMEMAXCHAR];
-	;	char cmatname[NAMEMAXCHAR];
-	;	char cmat2name[NAMEMAXCHAR];
-	;} loop_parm;
-	loop_parm = {lpparms, niter: 0UL, nave: 0UL, gainp: 0.0, gaini: 0.0, gaind:0.0, imatname: "", cmatname:STRARR(8), cmat2name:""}
-
-	;typedef struct sys_parm {
-	;	int nwfs;			// This is the actual number of WFSs being used (not 
-	;					// to be confused with NWFSMAX)...maybe this is just nGS...
-	;					// This should be set to the nGS when a target is loaded...
-	;} sys_parm;
-	sys_parm = {sysparms, nwfs:0, nact:0, nsub:0, ncb:0, sim_dm:0, sim_wfscams:0 }
-
-	parm = {imakaparm, sys:sys_parm, target:target_parm, wfscam:wfscam, wfs:wfs, dm:dm_parm, loop: loop_parm}
-RETURN, parm
-END
-
-"""
