@@ -5,6 +5,7 @@
 import numpy as np
 from astropy.io import fits
 from cacofoni.imaka_io.initimakadatastruct import initimakadatastruct
+from cacofoni.imaka_io.get_param_values import get_param_values
 from cacofoni.config import CacofoniConfig
 
 
@@ -12,121 +13,118 @@ def irdfits(ftele,
             fparam,
             exten=None):
     """
+    Populate the structured array 
+    from initimakadatastruct.
+    
+    Extensions:
+      0    = Loop control (always used)
+      1    = Raw wfscam pixels
+      2    = Processed wfscam pixels 
+      3    = WFS centroids 
+      4    = DM voltages
+      5    = Average wfscam pixels
+      6    = Average wfs centroids
+      7    = Average dm voltages
     """
     
-    # Always use the first (0 index) extension
+    # Default extension loading
     if exten is None:
         exten = [1] * 8
     elif isinstance(exten, int):
-        temp = [0] * 8
-        temp[exten] = 1
-        exten = temp
-    
-    # Extension 0: Loop state data (always exists)
-    with fits.open(ftele, no_scale=True, ignore_end=True) as hdul:
+        tmp = [0] * 8
+        tmp[exten] = 1
+        exten = tmp
+        
+    # Load basic structure from extension 0
+    with fits.open(ftele) as hdul:
+        print("\nLoading telemetry FITS file...")
         h0 = hdul[0].header
-        d0 = hdul[0].data
+        d0 = hdul[0].data  # raw loop control data
+        ntimes = h0.get('NAXIS2', d0.shape[0]) 
+        nwfs = int(h0['NWFS'])
         
-        ntimes = h0['NAXIS2']
-        nwfs = h0['NWFS']
+        print(f"Number of time steps: {ntimes}")
+        print(f"Number of WFS: {nwfs}")
         
-        if d0.shape[0] == ntimes and d0.shape[1] == 5:
-            d0 = d0.T  # Now d0.shape = (5, ntimes)
+        print("\nSetting up empty data structure...")
+        cb = initimakadatastruct(ntimes=ntimes, fparam=fparam)
         
-        data = initimakadatastruct(ntimes=ntimes, fparam=fparam)
-        
-        for t in range(ntimes):
-            data[t]['loop']['state'] = int(d0[0][t])
-            data[t]['loop']['cntr'] = int(d0[1][t])
-            
-        # Extension 1: Raw pixels from WFS cameras
-        if exten[1] and len(hdul) > 1:
-            print("E1: Loading raw pixels from WFS cameras.")
-            if not any("No wfscam (rawpixels) data saved" in c for c in hdul[1].header.cards):
-                d = hdul[1].data
-                for i in range(nwfs):
-                    for t in range(ntimes):
-                        data[t]['wfscam'][i]['rawpixels'] = d[:, :, i, t]
-                        data[t]['wfscam'][i]['timestamp'] = h0.get(f'TSTAMPA{i}', 0)
-                        data[t]['wfscam'][i]['tsample'] = h0.get(f'TSAMPLE{i}', 0.0)
+        print("\nChecking extensions...")
+        print("\nRunning E0: ")
+        d0 = fits.getdata(ftele, ext=0).T  # shape (5, ntimes)
 
-        # Extension 2: Processed pixels 
-        if exten[2] and len(hdul) > 2:
-            print("E2: Loading processed pixels.")
-            if not any("No wfscam (processed pixels) data saved" in c for c in hdul[2].header.cards):
-                d = hdul[2].data
-                for i in range(nwfs):
-                    for t in range(ntimes):
-                        data[t]['wfscam'][i]['pixels'] = d[:, :, i, t]
-                        data[t]['wfscam'][i]['timestamp'] = h0.get(f'TSTAMPA{i}', 0)
-                        data[t]['wfscam'][i]['tsample'] = h0.get(f'TSAMPLE{i}', 0.0)
-        else:
-            print("SKIPPING. E2: Loading processed pixels.")
-                        
-        # Extension 3: Centroids
-        if exten[3] and len(hdul) > 3:
-            print("E3: Loading centroids.")
-            if not any("No wfs data saved" in c for c in hdul[3].header.cards):
-                d = hdul[3].data
-                for i in range(nwfs):
-                    for t in range(ntimes):
-                        data[t]['wfs'][i]['centroids'] = d[:, i, t]
-        else:
-            print("SKIPPING. E3: Loading centroids.")
-                        
+        loop_state_array = np.int16(d0[0, :])  # equivalent to FIX(d[0,*])
+        loop_cntr_array  = np.uint32(d0[1, :]) # equivalent to ULONG(d[1,*])
+
+        # Fill into cb structure
+        for i in range(ntimes):
+            cb[i]['loop']['state'] = loop_state_array[i]
+            cb[i]['loop']['cntr']  = loop_cntr_array[i]
         
-        # Extension 4: DM voltages
-        if exten[4] and len(hdul) > 4:
-            print("E4: Loading DM voltages.")
-            if not any("No dm data saved" in c for c in hdul[4].header.cards):
-                d = hdul[4].data
-                for t in range(ntimes):
-                    data[t]['dm']['deltav'] = d[:, 0, t]
-                    data[t]['dm']['voltages'] = d[:, 1, t]
-        else:
-            print("SKIPPING. E4: Loading DM voltages.")
-                    
-        # Extension 5: Average wfscam data
-        if exten[5] and len(hdul) > 5:
-            print("E5: Loading average WFS camera data.")
-            if not any("No average wfscam data saved" in c for c in hdul[5].header.cards):
-                d = hdul[5].data
-                for i in range(nwfs):
-                    for t in range(ntimes):
-                        data[t]['wfscam'][i]['avepixels'] = d[:, :, i]
-        else:
-            print("SKIPPING. E5: Loading average WFS camera data.")
-                        
         
-        # Extension 6: Average WFS data
-        if exten[6] and len(hdul) > 6:
-            print("E6: Loading average WFS data.")
-            if not any("No average wfs data saved" in c for c in hdul[6].header.cards):
-                d = hdul[6].data
-                for i in range(nwfs):
-                    for t in range(ntimes):
-                        data[t]['wfs'][i]['avecentroids'] = d[:, i]
+        if exten[1]:
+            print("Running E1: Raw wfscam data")
         else:
-            print("SKIPPING. E6: Loading average WFS data.")
-                        
-        # Extension 7: Average dm data
-        if exten[7] and len(hdul) > 7:
-            print("E7: Loading average DM data.")
-            if not any("No average dm data saved" in c for c in hdul[7].header.cards):
-                d = hdul[7].data
-                for t in range(ntimes):
-                    data[t]['dm']['avevoltages'] = d
-                    
+            print("Skipping E1: Raw wfscam data")
+        
+        
+        if exten[2]:
+            print("Running E2: Processed wfscam data")
         else:
-            print("SKIPPING. E7: Loading average DM data.")
-    
-    return data
+            print("Skipping E2: Processed wfscam data")
+        
+        if exten[3]:
+            print("Running E3: WFS centroids")
+            d3 = hdul[3].data 
+            # d3 shape: (nsamp, nwfs, 2*nsub) = (27000, 1, 288)
+            
+            # Transpose to match idl logic (for now)
+            d3T = np.transpose(d3, (2, 1, 0)) 
+            # d3T shape : (2*nsub, nwfs, nsamp) = (288, 1, 27000)
+            
+            for i in range(nwfs):
+                cb[0]['wfs'][i]['centroids'] = d3T[:, i, :] 
+                # shape: (2*nsub, nsamp) = (288, 27000)
+       
+        '''
+        if exten[4]:
+            print("Running E4: DM data")
+            d4 = hdul[4].data  # shape: (NACT, 2, ntimes)
+            for t in range(ntimes):
+                cb[t]['dm']['deltav']   = d4[:, 0, t]
+                cb[t]['dm']['voltages'] = d4[:, 1, t]
+            
+        if exten[5]:
+            print("Running E5: Average wfscam")
+            d5 = hdul[5].data  # (nwfs, y, x)
+            for i in range(nwfs):
+                cb[0]['wfscam'][i]['avepixels'] = d5[i, :, :].T  # (x, y)
+                
+        if exten[6]:
+            print("Running E6: Average WFS centroids")
+            d6 = hdul[6].data  # shape: (nwfs, 2*nsub)
+            for i in range(nwfs):
+                cb[0]['wfs'][i]['avecentroids'] = d6[i, :]
+
+        
+        if exten[7]:
+            print("Running E7: Average DM voltages")
+            d7 = hdul[7].data
+            cb[0]['dm']['avevoltages'] = d7
+        '''
+        
+    return cb
 
 
     
             
 
 """
+; NAME: irdfits, filename
+; DESCRIPTION: reads a "standard" imaka data FITS file into an imaka IDL data structure
+; HISTORY:
+;	2015-06-25 - v1.0 - reads FITS file from dataclient v.?
+;+-----------------------------------------------------------------------------
 FUNCTION irdfits, fname, fparm=fparm, silent=SILENT, exten=exten
 	IF ( N_ELEMENTS(fparm) EQ 0 ) THEN fparm='/tmp/imakaparm.txt'
      IF ( N_ELEMENTS(exten) EQ 0 ) THEN exten=[1,1,1,1,1,1,1,1]

@@ -5,78 +5,104 @@
 import numpy as np
 from cacofoni.imaka_io.get_param_values import get_param_values
 from cacofoni.config import CacofoniConfig
+import copy
 
 def initimakadatastruct(fparam,
                         ntimes):
     '''
+    Setting up an empty data structure
+    to eventually hold telemetry data.
+    
+    Inputs:
+    -------
+    fparam : str
+           Path to parameter file.
+           
+    ntimes : int
+           Number of time steps. 
+           
+    Outputs:
+    --------
+    data : list of dict
+         A list of 'ntimes' dictionaries,
+         each representing a telemetry frame.
     '''
     
-    config=CacofoniConfig()
     
-    # Store core parameters from the file
-    nsub = int(get_param_values(fparam, "sys_parm.nsub")[0][0])
+    # Contains hard-coded information on max number of wfs
+    config = CacofoniConfig()
+    nwfs_max = config.nwfs_max
+    
+    # Get the basic system parameters: subaperatures, actuator, number of WFS
+    # get_param_values produces a list of lists, we want the first value inside
+    nsub = int(get_param_values(fparam, "sys_parm.nsub")[0][0]) 
     nact = int(get_param_values(fparam, "sys_parm.nact")[0][0])
-    nwfs = int(get_param_values(fparam, "sys_parm.nwfs")[0][0])
     
-    # Read the camera pixel size for each WFS
-    npixx_list = [int(x) for x in get_param_values(fparam, "wfscam_parm.npixx", which_column=1)]
-    
-    if sum(npixx_list) != nwfs * npixx_list[0]:
-        print("Warning: inconsistent npixx across WFSs")
-        
-    npixx = npixx_list[0]
+    # Assuming that the WFS is square (equal pixels in x- and y-direction)
+    npixx = int(get_param_values(fparam, "wfscam_parm.npixx", which_column=1)[0])
     
     # Compute derived quantities
-    nsub_total = nsub * nsub
-    npix_per_sub = npixx / nsub
-    npix_per_frame = int((nsub * npix_per_sub) ** 2)
+    nsub_total = nsub * nsub # Total subapertures (assumed square)
+    npix_total = int(npixx ** 2)
+    npix_per_sub = npixx / nsub # How many pixels wide is each subaperture
     
-    # Defining an empty frame
+    print(f"WFS: {npixx}x{npixx} ({npix_total}) total pixels.")
+    print(f"WFS: {nsub}x{nsub} ({nsub_total}) total subapertures.")
+    print(f"WFS: {int(npix_per_sub)} pixels per subaperture.")
     
-    # Loop state info
+    
+    # Defining an empty frame (data)
+    # A = loop data (once per time step)
+    # B = dm data (per actuator)
+    # C = wfs data (per subaperture)
+    # D = wfs cam data
+    
+    # A) 
     loop_data = {
-        "state": 0,
-        "cntr": 0,
+        "state": 0, # 0 = idle, 1 = running
+        "cntr": 0, # counter
     }
     
-    # DM info (voltages and deltas)
+    # B)
     dm_data = {
         "deltav": [0.0] * nact,
         "voltages": [0.0] * nact,
         "avevoltages": [0.0] * nact,
     }
     
-    # WFS sensor data
+    # C)
+    # Holds x and y data
     wfs_data = []
-    for _ in range(config.nwfs_max):
+    for _ in range(nwfs_max):
         wfs_data.append({
             "raw_centroids": [0.0] * (2 * nsub_total),
             "centroids": [0.0] * (2 * nsub_total),
             "avecentroids": [0.0] * (2 * nsub_total),
         })
         
-    # WFS camera data
+    # D)
     wfscam_data = []
-    for _ in range(config.nwfs_max):
+    for _ in range(nwfs_max):
         wfscam_data.append({
-            "timestamp": 0,
-            "fieldcount": 0,
-            "tsample": 0.0,
-            "rawpixels": [[0] * int(npix_per_sub * nsub) for _ in range(int(npix_per_sub * nsub))],
-            "pixels":     [[0.0] * int(npix_per_sub * nsub) for _ in range(int(npix_per_sub * nsub))],
-            "avepixels":  [[0.0] * int(npix_per_sub * nsub) for _ in range(int(npix_per_sub * nsub))],
+            "timestamp": 0, # time when image was taken
+            "fieldcount": 0, # frame number 
+            "tsample": 0.0, # exposure time
+            "rawpixels": np.zeros((npixx, npixx), dtype=float), # raw pixel image 
+            "pixels": np.zeros((npixx, npixx), dtype=float), # processed image
+            "avepixels": np.zeros((npixx, npixx), dtype=float), # average image
         })
         
     # One full frame template
     frame = {
-        "loop": loop_data,
+        "loop": loop_data, # Holds idle/running + counter
+        "dm": dm_data, # Holds deltav + voltages + avevoltages
+        "wfs": wfs_data, # Holds raw centroids + centroids + avecentroids
         "wfscam": wfscam_data,
-        "wfs": wfs_data,
-        "dm": dm_data,
     }
     
     # Replicate across all of the time steps
-    data = [frame.copy() for _ in range(ntimes)]
+    data = [copy.copy(frame) for _ in range(ntimes)]
+
     
     return data 
 

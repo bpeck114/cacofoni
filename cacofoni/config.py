@@ -14,6 +14,7 @@ class CacofoniConfig:
     
     num_actuators: int = 36
     nwfs_max: int = 5
+    sampling_frequency: int = 996
     
     extension: list = None  
 

@@ -33,13 +33,49 @@ def make_cacofoni(ftele=None,
     pparam  = get_valid_path(fparam, config.param_filename)
     
     print("\nFile Paths:")
-    print(f"Telemetry File:      {ptele}")
-    print(f"Parameter File:      {pparam}")
+    print(f"Telemetry file         = {ptele}")
+    print(f"Parameter file         = {pparam}")
     
-    print("\nAssumptions:") # From configuration file 
-    print(f"Number of Actuators: {config.num_actuators}")
-    print(f"Minimum Frequency:   {config.minimum_frequency}")
-    print(f"Maximum Frequency:   {config.maximum_frequency}")
+    #print("\nAssumptions:") # From configuration file 
+    #print(f"Number of actuators    = {config.num_actuators}")
+    #print(f"Maximum number of wfs  = {config.nwfs_max} ")
+    #print(f"Minimum frequency      = {config.minimum_frequency}")
+    #print(f"Maximum frequency      = {config.maximum_frequency}")
+    #print(f"Sampling Frequency.    = {config.sampling_frequency}")
+        
+    # 1) Load the FITS telemetry and parameter structure with irdfits
+    # Makes an empty structure and fills it with telemetry data
+    exten = config.extension
+    cb = irdfits(ptele, pparam, exten)
+    print("\nFinished loading telemetry data...")
+    
+    #cb_dm = cb[0]['dm']
+    
+    # Checks if closed is True
+    # If True, uses deltav 
+    # If False, uses voltages 
+    #if closed:
+        #print("\nMode (C/O): Closed Loop (using deltav)")
+        #com = cb_dm['deltav'][0:config.num_actuators, :]
+        
+    #else:
+        #print("\nMode (C/O): Open Loop (using voltages)")
+        #com = cb_dm['voltages'][0:config.num_actuators, :]  
+    
+    mes1 = np.array([cb[t]['wfs'][0]['centroids'][:, 0] for t in range(len(cb))]).T
+    nsub, nsamp = mes1.shape
+    mes1_centered = mes1 - mes1.mean(axis=1, keepdims=True) 
+    # shape: (nsub, nsamp) = (288, 27000)
+    
+    freq = (np.arange(nsamp // 2) + 1) / (nsamp / 2) * (config.sampling_frequency / 2)
+    filter_mask = (freq >= config.minimum_frequency) & (freq <= config.maximum_frequency) # bandpass filter
+    filter1 = np.tile(filter_mask, (config.num_actuators, 1))
+    window = np.hanning(nsamp)
+    specmes = np.empty((288, nsamp), dtype=np.complex64)
+    for i in range(288):
+        specmes[i, :] = np.fft.fft(window * mes1[i, :])
+        
+    psdmes = specmes[:, 0:(nsamp // 2)].astype(np.float32)
     
     # Checks if modal is True
     # If True, checks if mirror modes file exists (like above)
@@ -55,33 +91,9 @@ def make_cacofoni(ftele=None,
     else:
         print("\nMode (M/Z): Zonal")
         
-    # 1) Load the FITS telemetry and parameter structure with irdfits
-    exten = config.extension
-    cb = irdfits(ptele, pparam, exten)
+    
     
     return 
-    
-    """
-    hdul = fits.open(filename)
-    dm_data = hdul[4].data # shape: (64, 2, 27000)
-    wfs_x = hdul[3].data   # shape: (288, 1, 27000)
-    wfs_y = hdul[8].data   # shape: (288, 1, 27000)
-    
-    cb = {
-        'dm' : {
-            'voltages': dm_data[:, 0, :], # shape: (64, 27000)
-            'deltav': dm_data[:, 1, :]    # shape: (64, 27000)
-        },
-        'wfs': {
-            # Stacks X and Y centroids
-            'centroids': np.vstack([wfs_x[:, 0, :], wfs_y[:, 0, :]]) # shape: (576, 27000)
-            
-    """
-        
-        
-   
-
-
 
 """   
 function make_cacophony, filename,minfreq,maxfreq,closed=closed,modal=modal,fparm=fparm,silent=silent,thresh=thresh,laplacian=laplacian
