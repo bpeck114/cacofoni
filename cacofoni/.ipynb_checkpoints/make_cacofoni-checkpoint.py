@@ -6,81 +6,137 @@ from astropy.io import fits
 from cacofoni.config import CacofoniConfig
 from cacofoni.imaka_io.irdfits import irdfits
 from cacofoni.utils.file_utils import get_valid_path
+from cacofoni.utils.deriv2D import deriv2D 
 
 
 def make_cacofoni(ftele=None, 
                   fparam=None,
                   fmirror=None,
-                  config=CacofoniConfig(),
-                  closed=False,
-                  modal=False,
-                  silent=False,
-                  thresh=None,
-                  compute_laplacian=False):
+                  silent=False):
     
     """
-
-
     """
     
     # 0) Setup
-    # Load in necessary files 
-    print("Setting up make_cacofoni...")
+    if not silent:
+        print("Setting up make_cacofoni...")
     
-    # If user gives a path, checks if path exists
-    # If user does NOT give a path, checks if default path exists
-    ptele   = get_valid_path(ftele, config.telemetry_filename) # (User defined path to file, default path to file)
+    config = CacofoniConfig() # Configuration file that holds assumptions
+    ptele   = get_valid_path(ftele, config.telemetry_filename)
     pparam  = get_valid_path(fparam, config.param_filename)
     
-    print("\nFile Paths:")
-    print(f"Telemetry file         = {ptele}")
-    print(f"Parameter file         = {pparam}")
     
-    #print("\nAssumptions:") # From configuration file 
-    #print(f"Number of actuators    = {config.num_actuators}")
-    #print(f"Maximum number of wfs  = {config.nwfs_max} ")
-    #print(f"Minimum frequency      = {config.minimum_frequency}")
-    #print(f"Maximum frequency      = {config.maximum_frequency}")
-    #print(f"Sampling Frequency.    = {config.sampling_frequency}")
+    if config.modal:
+        pmirror  = get_valid_path(fparam, config.mirror_modes_filename)
+    
+    if not silent:
+        print("Assumptions from configuration file:") # From configuration file
+        print("Override these values in the configuration file.")
+        print("------------------------------------------------")
+        print(f"Minimum frequency (Hz)      = {config.minimum_frequency}")
+        print(f"Maximum frequency (Hz)      = {config.maximum_frequency}")
+        print(f"Sampling Frequency (Hz)     = {config.sampling_frequency}")
+        print(f"Maximum number of WFS       = {config.nwfs_max}")
+        print(f"Number of actuators         = {config.num_actuators}")
+        print(f"Closed/Open Loop            = {'Closed' if config.closed else 'Open'}")
+        print(f"Modal/Zonal                 = {'Modal' if config.modal else 'Zonal'}")
+        print(f"Laplacian?                  = {'Yes' if config.laplacian else 'No'}")
+        print("------------------------------------------------\n")
+        
+        print("File Paths:")
+        print("Override these paths in make_cacofoni arguments.")
+        print("------------------------------------------------")
+        
+        print(f"Telemetry file             = {ptele}")
+        print(f"Parameter file             = {pparam}")
+        
+        if config.modal:
+            print(f"Mirror Modes file:         = {pmirror}")
+        else: 
+            print(f"Mirror Modes file:         = N/A")
+        print("------------------------------------------------\n")
+        
         
     # 1) Load the FITS telemetry and parameter structure with irdfits
     # Makes an empty structure and fills it with telemetry data
-    exten = config.extension
-    cb = irdfits(ptele, pparam, exten)
-    print("\nFinished loading telemetry data...")
     
-    #cb_dm = cb[0]['dm']
+    if not silent:
+        print("Loading telemetry data with irdfits...\n")
+    
+    exten = config.extension
+    telemetry_frames = irdfits(ptele, pparam, exten=exten, silent=silent)
+    
+    if not silent:
+        print("Finished loading telemetry data...")
+        print("Loading WFS centroid measurements...\n")
+        
+    wfs_data_per_frame = [frame['wfs'] for frame in telemetry_frames]
+    centroid_matrix = np.array([wfs_frame[0]['centroids'] for wfs_frame in wfs_data_per_frame])
+    centroid_matrix = centroid_matrix.T # transposing to match idl code
+    centered_centroids = centroid_matrix - np.mean(centroid_matrix, axis=1, keepdims=True) 
+    n_centroids, n_timesteps = centered_centroids.shape
+   
+    if not silent:
+        print(f"Found {n_centroids} centroid measurements for {n_timesteps}.\n")
+        
+    print("Shape:", centered_centroids.shape)                        # equivalent to IDL's SIZE
+    print("Min / Max:", np.min(centered_centroids), np.max(centered_centroids))    # MIN and MAX
+    print("Top-left 5x5 block:\n", centered_centroids[:5, :5])       # preview 5x5
+
+        
+    fsamp = config.sampling_frequency
+    minfreq = config.minimum_frequency
+    maxfreq = config.maximum_frequency
+    num_actuators = config.num_actuators
+    
+    # Step 3: Create frequency array (match IDL’s +1 behavior and 996 Hz assumption)
+    positive_freqs = (np.arange(n_timesteps // 2) + 1) / (n_timesteps / 2) * (fsamp / 2)
+
+    # Step 4: Frequency band mask
+    minfreq = config.minimum_frequency
+    maxfreq = config.maximum_frequency
+    freq_band_mask = (positive_freqs >= minfreq) & (positive_freqs <= maxfreq)
+    freq_band_mask_2d = np.tile(freq_band_mask[:, np.newaxis], (1, config.num_actuators))  # shape: (13500, 36)
+
+    # Step 5: Hann window and FFT
+    hann_window = np.hanning(n_timesteps)
+    spec_centroids = np.array([
+        np.fft.fft(hann_window * centered_centroids[i, :])
+        for i in range(n_centroids)
+    ])
+
+    # Step 6: PSD (abs value), include upper Nyquist bin
+    psd_centroids = np.abs(spec_centroids[:, :n_timesteps // 2 + 1])  # shape (288, 13501)
+
+    # Print debug info (match IDL's print behavior)
+    print("Shape:", psd_centroids.shape)
+    print("Min / Max:", np.min(psd_centroids), np.max(psd_centroids))
+    print("Top-left 5x5 block:\n", psd_centroids[:5, :5])
     
     # Checks if closed is True
     # If True, uses deltav 
     # If False, uses voltages 
-    #if closed:
-        #print("\nMode (C/O): Closed Loop (using deltav)")
-        #com = cb_dm['deltav'][0:config.num_actuators, :]
-        
-    #else:
-        #print("\nMode (C/O): Open Loop (using voltages)")
-        #com = cb_dm['voltages'][0:config.num_actuators, :]  
+    # Makes 64 values because of the drivers but
+    # there is actually only 36 actuators.
     
-    mes1 = np.array([cb[t]['wfs'][0]['centroids'][:, 0] for t in range(len(cb))]).T
-    nsub, nsamp = mes1.shape
-    mes1_centered = mes1 - mes1.mean(axis=1, keepdims=True) 
-    # shape: (nsub, nsamp) = (288, 27000)
-    
-    freq = (np.arange(nsamp // 2) + 1) / (nsamp / 2) * (config.sampling_frequency / 2)
-    filter_mask = (freq >= config.minimum_frequency) & (freq <= config.maximum_frequency) # bandpass filter
-    filter1 = np.tile(filter_mask, (config.num_actuators, 1))
-    window = np.hanning(nsamp)
-    specmes = np.empty((288, nsamp), dtype=np.complex64)
-    for i in range(288):
-        specmes[i, :] = np.fft.fft(window * mes1[i, :])
+    cb_dm = [frame['dm'] for frame in cb]
+    if config.closed:
+        # shape will be (36, ntimes)
+        com = np.array([dm['deltav'][:config.num_actuators] for dm in cb_dm]).T
+        print(f"len com: {len(com)}")
         
-    psdmes = specmes[:, 0:(nsamp // 2)].astype(np.float32)
+    else:
+        com = np.array([dm['voltages'][:config.num_actuators] for dm in cb_dm]).T 
+        print(f"len com: {len(com)}")
+
+
     
     # Checks if modal is True
     # If True, checks if mirror modes file exists (like above)
+    
+    '''
     if modal:
-        print("\nMode (M/Z): Modal") # Loads in mirror mode matrix
+         # Loads in mirror mode matrix
         mirror_modes_path = get_valid_path(fmirror, config.mirror_modes_filename)
         
         print(f"Mirror Modes File:  {mirror_modes_path}")
@@ -90,7 +146,8 @@ def make_cacofoni(ftele=None,
         mod2act = np.linalg.pinv(mirmodes)
     else:
         print("\nMode (M/Z): Zonal")
-        
+    '''
+    
     
     
     return 
