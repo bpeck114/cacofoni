@@ -13,9 +13,9 @@ class CacofoniConfig:
     minimum_frequency: float = 4.0
     maximum_frequency: float = 10.0
     num_actuators: int = 36
-    closed: bool = True
+    closed: bool = False
     modal: bool = False
-    thresh: bool = False
+    thresh: bool = None
     laplacian: bool = True
     
     nwfs_max: int = 5
