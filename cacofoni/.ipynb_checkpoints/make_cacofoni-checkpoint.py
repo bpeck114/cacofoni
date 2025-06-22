@@ -71,7 +71,9 @@ def make_cacofoni(ftele=None,
         print("Finished loading telemetry data...")
         print("Loading WFS centroid measurements...\n")
         
-    wfs_data_per_frame = [frame['wfs'] for frame in telemetry_frames]
+    # wfs_data_per_frame = [frame['wfs'] for frame in telemetry_frames]
+    wfs_data_per_frame = np.array([frame['wfs'] for frame in telemetry_frames])
+    print(wfs_data_per_frame.shape) 
     centroid_matrix = np.array([wfs_frame[0]['centroids'] for wfs_frame in wfs_data_per_frame])
     centroid_matrix = centroid_matrix.T # transposing to match idl code
     centered_centroids = centroid_matrix - np.mean(centroid_matrix, axis=1, keepdims=True) 
@@ -159,4 +161,4 @@ def make_cacofoni(ftele=None,
             laplacian[:, :, i] = (deriv2D(inffuncdy[:, :, i], y=True) + deriv2D(inffuncdx[:, :, i], x=True))
 
 
-    return laplacian, imatcacophony, idx
+    return psdmod, positive_freqs, freq_band_mask, freq_band_mask_2d, psd_centroids, laplacian, imatcacophony, idx

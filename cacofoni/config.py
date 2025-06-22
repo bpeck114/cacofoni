@@ -12,7 +12,10 @@ class CacofoniConfig:
     mirror_modes_filename: str = "mm2a_norm.fits"
     minimum_frequency: float = 4.0
     maximum_frequency: float = 10.0
+    start_frequency: float = 5.0
     num_actuators: int = 36
+    num_subapertures: int = 144
+    
     closed: bool = False
     modal: bool = False
     thresh: bool = None
