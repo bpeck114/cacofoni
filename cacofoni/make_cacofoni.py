@@ -124,6 +124,10 @@ def make_cacofoni(ftele=None,
     # print("First 5 values:\n", specmodmod[:5, :5])  
 
     psdmod = np.abs(speccom[:, :n_timesteps // 2])
+    print(psdmod.shape)
+    print(np.min(psdmod))
+    print(np.max(psdmod.T))
+    print(psdmod[0:5, 0:5])
     
     if config.thresh is None:
         thresh = np.max(psdmod[:, 5:] / 20.0)

@@ -73,7 +73,6 @@ def make_cacofoni(ftele=None,
         
     # wfs_data_per_frame = [frame['wfs'] for frame in telemetry_frames]
     wfs_data_per_frame = np.array([frame['wfs'] for frame in telemetry_frames])
-    print(wfs_data_per_frame.shape) 
     centroid_matrix = np.array([wfs_frame[0]['centroids'] for wfs_frame in wfs_data_per_frame])
     centroid_matrix = centroid_matrix.T # transposing to match idl code
     centered_centroids = centroid_matrix - np.mean(centroid_matrix, axis=1, keepdims=True) 
@@ -89,8 +88,8 @@ def make_cacofoni(ftele=None,
     
     positive_freqs = (np.arange(n_timesteps // 2) + 1) / (n_timesteps / 2) * (fsamp / 2) # shape: (13500,)
     
-    minfreq = config.minimum_frequency
-    maxfreq = config.maximum_frequency
+    # minfreq = config.minimum_frequency
+    # maxfreq = config.maximum_frequency
     
     freq_band_mask = (positive_freqs >= minfreq) & (positive_freqs <= maxfreq)  # Boolean mask, shape: (13500,)
     
@@ -125,6 +124,10 @@ def make_cacofoni(ftele=None,
     # print("First 5 values:\n", specmodmod[:5, :5])  
 
     psdmod = np.abs(speccom[:, :n_timesteps // 2])
+    print(psdmod.shape)
+    print(np.min(psdmod))
+    print(np.max(psdmod.T))
+    print(psdmod[0:5, 0:5])
     
     if config.thresh is None:
         thresh = np.max(psdmod[:, 5:] / 20.0)

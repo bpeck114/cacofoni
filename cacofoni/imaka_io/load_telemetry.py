@@ -32,7 +32,9 @@ def load_telemetry(ftele,
     # Actual nact does not match size of telemetry array
     config = CacofoniConfig
     nact = config.num_actuators
-    nsub = config.num_subapertures
+    num_dimx_subap = config.num_dimx_subapertures # 12
+    num_dimy_subap = config.num_dimx_subapertures # 12
+    nsub = num_dimx_subap *  num_dimy_subap
 
     with fits.open(ftele) as hdul:
 

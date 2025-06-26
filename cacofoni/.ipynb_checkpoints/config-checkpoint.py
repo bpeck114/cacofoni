@@ -14,7 +14,8 @@ class CacofoniConfig:
     maximum_frequency: float = 10.0
     start_frequency: float = 5.0
     num_actuators: int = 36
-    num_subapertures: int = 144
+    num_dimx_subapertures: int = 12
+    num_dimy_subapertures: int = 12
     
     closed: bool = False
     modal: bool = False
