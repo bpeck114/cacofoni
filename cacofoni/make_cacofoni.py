@@ -2,166 +2,174 @@
 
 # Import packages
 import numpy as np
-import matplotlib.pyplot as plt
 from astropy.io import fits
+
 from cacofoni.config import CacofoniConfig
-from cacofoni.imaka_io.irdfits import irdfits
-from cacofoni.utils.file_utils import get_valid_path
-from cacofoni.utils.deriv2D import deriv2D 
+from cacofoni.calc_samp_freq import calc_samp_freq
+from cacofoni.deriv2D import deriv2D
+from cacofoni._load_and_log_telemetry import _load_and_log_telemetry
+from cacofoni.file_utils import check_default_path, check_user_path, resolve_filepath
+from cacofoni._compute_fft import _compute_fft
+from cacofoni.find_peak_freq import find_peak_actuator_frequencies
 
-
-def make_cacofoni(ftele=None, 
+def make_cacofoni(telemetry_filepath=None,
                   fparam=None,
-                  fmirror=None,
-                  silent=False):
-    
+                  modal_filepath=None,
+                  modal=False,
+                  apply_hanning=None,
+                  closed=None,
+                  silent=False,
+                  debug=None,
+                  config=None):
+    """   
     """
-    """
-    
-    # 0) Setup
-    if not silent:
-        print("Setting up make_cacofoni...")
-    
-    config = CacofoniConfig() # Configuration file that holds assumptions
-    ptele   = get_valid_path(ftele, config.telemetry_filename)
-    pparam  = get_valid_path(fparam, config.param_filename)
-    
-    
-    if config.modal:
-        pmirror  = get_valid_path(fparam, config.mirror_modes_filename)
     
     if not silent:
-        print("Assumptions from configuration file:") # From configuration file
-        print("Override these values in the configuration file.")
-        print("------------------------------------------------")
-        print(f"Minimum frequency (Hz)      = {config.minimum_frequency}")
-        print(f"Maximum frequency (Hz)      = {config.maximum_frequency}")
-        print(f"Sampling Frequency (Hz)     = {config.sampling_frequency}")
-        print(f"Maximum number of WFS       = {config.nwfs_max}")
-        print(f"Number of actuators         = {config.num_actuators}")
-        print(f"Closed/Open Loop            = {'Closed' if config.closed else 'Open'}")
-        print(f"Modal/Zonal                 = {'Modal' if config.modal else 'Zonal'}")
-        print(f"Laplacian?                  = {'Yes' if config.laplacian else 'No'}")
-        print("------------------------------------------------\n")
+        print("Setting up make_cacofoni...\n")
         
-        print("File Paths:")
-        print("Override these paths in make_cacofoni arguments.")
-        print("------------------------------------------------")
-        
-        print(f"Telemetry file             = {ptele}")
-        print(f"Parameter file             = {pparam}")
-        
-        if config.modal:
-            print(f"Mirror Modes file:         = {pmirror}")
-        else: 
-            print(f"Mirror Modes file:         = N/A")
-        print("------------------------------------------------\n")
-        
-        
-    # 1) Load the FITS telemetry and parameter structure with irdfits
-    # Makes an empty structure and fills it with telemetry data
-    
+    config = config or CacofoniConfig()
     if not silent:
-        print("Loading telemetry data with irdfits...\n")
-    
-    exten = config.extension
-    telemetry_frames = irdfits(ptele, pparam, exten=exten, silent=silent)
-    
-    if not silent:
-        print("Finished loading telemetry data...")
-        print("Loading WFS centroid measurements...\n")
+        print(f"[Config] Assuming {config.n_actuators} actuators from config for loading telemetry data.")
+        print(f"[Config] Assuming {config.n_xsubapertures} 'x' subapertures from config for loading telemetry data.")
+        print(f"[Config] Assuming {config.n_ysubapertures} 'y' subapertures from config for loading telemetry data.\n")
         
-    # wfs_data_per_frame = [frame['wfs'] for frame in telemetry_frames]
-    wfs_data_per_frame = np.array([frame['wfs'] for frame in telemetry_frames])
-    centroid_matrix = np.array([wfs_frame[0]['centroids'] for wfs_frame in wfs_data_per_frame])
-    centroid_matrix = centroid_matrix.T # transposing to match idl code
-    centered_centroids = centroid_matrix - np.mean(centroid_matrix, axis=1, keepdims=True) 
-    n_centroids, n_timesteps = centered_centroids.shape
+        print(f"[Config] Assuming {config.minimum_freq_hz} Hz for minimum frequency.")
+        print(f"[Config] Assuming {config.maximum_freq_hz} Hz for maximum frequency.\n")
     
-    if not silent:
-        print(f"Found {n_centroids} centroid measurements for {n_timesteps}.\n")
+    apply_hanning = config.apply_hanning if apply_hanning is None else apply_hanning
+    silent = config.silent if silent is None else silent
+    modal = config.modal if modal is None else modal
+    
+    telemetry_filepath = resolve_filepath(telemetry_filepath, config.telemetry_filename, silent)   
+    telemetry_data = _load_and_log_telemetry(telemetry_filepath, silent)
+    xcentroids, ycentroids, deltav, voltage, n_steps, n_act, n_centroids, sampling_freq_hz, nyquist_freq_hz = telemetry_data
+    commands = deltav if config.closed else voltage
+    
+    if modal:
+        modal_filepath = resolve_filepath(modal_filepath, config.modal_filename, silent) 
+    
+    if debug:
+        # For debugging, matches idl better 
+        sampling_freq_hz = 996  
+        tmp = np.arange(n_steps, dtype=np.float32)
+        hann_idl = 0.5 * (1.0 - np.cos(2.0 * np.pi * tmp / (n_steps - 1)))
+        hann_window = hann_idl.astype(np.float32)
+        nyquist_freq = sampling_freq_hz / 2
         
-    fsamp = config.sampling_frequency
-    minfreq = config.minimum_frequency
-    maxfreq = config.maximum_frequency
-    num_actuators = config.num_actuators
+    centroids = np.concatenate((xcentroids, ycentroids), axis=2).astype(np.float32)
+    centroids_flat = centroids.reshape(n_steps, -1) 
+    centroid_means = np.mean(centroids_flat, axis=0, keepdims=True)
+    centroids_centered = centroids_flat - centroid_means
     
-    positive_freqs = (np.arange(n_timesteps // 2) + 1) / (n_timesteps / 2) * (fsamp / 2) # shape: (13500,)
-    
-    # minfreq = config.minimum_frequency
-    # maxfreq = config.maximum_frequency
-    
-    freq_band_mask = (positive_freqs >= minfreq) & (positive_freqs <= maxfreq)  # Boolean mask, shape: (13500,)
-    
-    freq_band_mask_2d = np.tile(freq_band_mask[:, np.newaxis], (1, config.num_actuators))  # shape: (13500, 36)
-
-    spec_centroids = np.zeros((n_centroids, n_timesteps), dtype=np.complex64)
-    
-    for i in range(n_centroids):
-        spec_centroids[i, :] = np.fft.fft(np.hanning(n_timesteps) * centered_centroids[i, :]) / 27000 # To match the idl normalization
+    print("centroids_centered.shape", centroids_centered.shape)
+    print("np.min(centroids_centered)", np.min(centroids_centered))
+    print("np.max(centroids_centered)", np.max(centroids_centered))
+    print("centroids_centered[0:5, 0]", centroids_centered[0:5, 0])
+    print("centroids_centered[0, 0:5]", centroids_centered[0, 0:5])
         
-    psd_centroids = np.real(spec_centroids[:, :n_timesteps // 2]) # shape: (288, 13500)
-
-    speccom = np.zeros((config.num_actuators, n_timesteps), dtype=np.complex64) # shape: (36, 27000)
+    fft_centroids_all = _compute_fft(centroids_centered, apply_hanning, hann_window)
     
-    specmodmod = np.zeros((n_centroids, config.num_actuators, n_timesteps), dtype=np.complex64) # shape: (288, 36, 27000)
+    print("fft_centroids_all.shape", fft_centroids_all.shape)
+    print("np.min(fft_centroids_all)", np.min(fft_centroids_all))
+    print("np.max(fft_centroids_all)", np.max(fft_centroids_all))
+    print("fft_centroids_all[0:5, 0]", fft_centroids_all[0:5, 0])
+    print("fft_centroids_all[0, 0:5]", fft_centroids_all[0, 0:5])
     
-    cb_dm = [frame['dm'] for frame in telemetry_frames]
+    if modal:
+        if not silent:
+            print("Loading modal file...\n")
     
-    if config.closed:
-        com = np.array([dm['deltav'][:config.num_actuators] for dm in cb_dm]).T # shape: (36, 27000)
+        with fits.open(modal_filepath) as hdul:
+            mirmodes = hdul[0].data # shape: (n_modes, n_act)? = (36, 36)
+            
+        mod2act = np.linalg.inv(mirmodes) # shape (36, 36)
+        modcom = np.dot(commands, mirmodes.T)
+        
+        fft_actuators_all = np.zeros((n_steps, n_act), dtype=np.complex64)
+        fft_response_all = np.zeros((n_steps, n_centroids, n_act), dtype=np.complex64)
+            
+        for i in range(n_act):
+            fft_actuators_all = np.fft.fft(modcom, axis=0).astype(np.complex64)
+            
+        print("fft_actuators_all.shape", fft_actuators_all.shape)
+        print("np.min(fft_actuators_all)", np.min(fft_actuators_all))
+        print("np.max(fft_actuators_all)", np.max(fft_actuators_all))
+        print("fft_actuators_all[0:5, 0]", fft_actuators_all[0:5, 0])
+        print("fft_actuators_all[0, 0:5]", fft_actuators_all[0, 0:5])
+        
+        fft_response_all = fft_centroids_all[:, :, np.newaxis] / fft_actuators_all[:, np.newaxis, :]
+        
     else:
-        com = np.array([dm['voltages'][:config.num_actuators] for dm in cb_dm]).T  # shape: (36, 27000)
-        print("Not closed.")
-      
-    for i in range(config.num_actuators):
-        speccom[i, :] = np.fft.fft(np.hanning(n_timesteps) * com[i, :]) / 27000
-        for j in range(288):
-            specmodmod[j, i, :] = spec_centroids[j, :] / speccom[i, :]
-   
-    # print("Shape:", specmodmod.shape)
-    # print("Min / Max:", np.min(specmodmod), np.max(specmodmod))
-    # print("First 5 values:\n", specmodmod[:5, :5])  
-
-    psdmod = np.abs(speccom[:, :n_timesteps // 2])
-    print(psdmod.shape)
-    print(np.min(psdmod))
-    print(np.max(psdmod.T))
-    print(psdmod[0:5, 0:5])
-    
-    if config.thresh is None:
-        thresh = np.max(psdmod[:, 5:] / 20.0)
-    
-    indexmax = np.zeros(config.num_actuators, dtype=np.float32)
-    
-    for i in range(config.num_actuators):
-        if np.max(freq_band_mask * psdmod[i, :]) > thresh:
-            idx = np.argmax(np.abs(freq_band_mask * psdmod[i, :]))
-            print(i, idx, positive_freqs[idx], psdmod[i, idx])
-            indexmax[i] = idx
-        else:
-            indexmax[i] = 0.
-    
-    imatcacophony = np.zeros((288, 36), dtype=np.float32)
-    
-    for i in range(config.num_actuators):
-        idx = int(indexmax[i])
-        imatcacophony[:, i] = -1.0 * (specmodmod[:, i, idx] + specmodmod[:, i, n_timesteps - idx]).astype(np.float32) / 2.0
-
-    if config.closed:
-        imatcacophony *= -1.0
-
-    #if config.modal:
-        #imatcacophony = np.matmul(imatcacophony, mod2act)  # or imatcacophony @ mod2act
+        fft_actuators_all = _compute_fft(commands, apply_hanning, hann_window)
+        fft_response_all = fft_centroids_all[:, :, np.newaxis] / fft_actuators_all[:, np.newaxis, :]
         
+    print("fft_response_all.shape", fft_response_all.shape)
+    print("np.min(fft_response_all)", np.min(fft_response_all))
+    print("np.max(fft_response_all)", np.max(fft_response_all))
+    print("fft_response_all[0:5, 4, 4]", fft_response_all[0:5, 4, 4])
+    print("fft_response_all[4, 0:5, 4]", fft_response_all[4, 0:5, 4])
+    print("fft_response_all[4, 4, 0:5]", fft_response_all[4, 4, 0:5])
+        
+    n_pos_freq_bins = n_steps // 2
+    freq_pos = ((np.arange(n_pos_freq_bins) + 1) / n_pos_freq_bins * nyquist_freq).astype(np.float32) 
+        
+    freq_mask = (freq_pos >= config.minimum_freq_hz) & (freq_pos <= config.maximum_freq_hz)
+    actuator_fft_magnitude = np.abs(fft_actuators_all[0:n_pos_freq_bins, :]) 
+    fft_centroids_real = np.real(fft_centroids_all[0:n_pos_freq_bins, :])
+    
+    if not silent: 
+        print("Preparing for interaction matrix...\n")
+        
+    peak_freq_indices = find_peak_actuator_frequencies(actuator_fft_magnitude, freq_mask, freq_pos, silent)
+    
+    print("peak_freq_indices.shape", peak_freq_indices.shape)
+    print("np.min(peak_freq_indices)", np.min(peak_freq_indices))
+    print("np.max(peak_freq_indices)", np.max(peak_freq_indices))
+    print("peak_freq_indices[0:5]", peak_freq_indices[0:5])
+    
+    if not silent:
+        print("Computing interaction matrix...\n")
+        
+    interaction_matrix = np.zeros((n_centroids, n_act), dtype=np.float32)
+    for i in range(n_act):
+        positive_idx = peak_freq_indices[i]
+        negative_idx = n_steps - positive_idx
+        
+        if negative_idx >= n_steps:
+            negative_idx = n_steps -1
+        
+        interaction_matrix[:, i] = -1.0 * (
+            fft_response_all[positive_idx, :, i].real +
+            fft_response_all[negative_idx, :, i].real
+        ) / 2.0
+        
+    print("interaction_matrix.shape", interaction_matrix.shape)
+    print("np.min(interaction_matrix)", np.min(interaction_matrix))
+    print("np.max(interaction_matrix)", np.max(interaction_matrix))
+    print("interaction_matrix[0:5]", interaction_matrix[0, 0:5])
+        
+    if modal:
+        interaction_matrix = interaction_matrix @ mod2act.T
+        
+    if config.closed:
+        interaction_matrix *= -1.0
+            
+    if not silent:
+        print("Computing laplcian...")
+            
     if config.laplacian:
-        inffuncdx = np.zeros((12, 12, config.num_actuators), dtype=np.float32)
-        inffuncdy = np.zeros((12, 12, config.num_actuators), dtype=np.float32)
-        laplacian = np.zeros((12, 12, config.num_actuators), dtype=np.float32)
-        for i in range(config.num_actuators):
-            inffuncdx[:, :, i] = imatcacophony[0:144, i].reshape(12, 12)
-            inffuncdy[:, :, i] = imatcacophony[144:n_centroids, i].reshape(12, 12)
-            laplacian[:, :, i] = (deriv2D(inffuncdy[:, :, i], y=True) + deriv2D(inffuncdx[:, :, i], x=True))
+        inffuncdx = np.zeros((config.n_xsubapertures, config.n_ysubapertures, n_act), dtype=float)
+        inffuncdy = np.zeros((config.n_xsubapertures, config.n_ysubapertures, n_act), dtype=float)
+        laplacian = np.zeros((config.n_xsubapertures, config.n_ysubapertures, n_act), dtype=float)
 
 
-    return psdmod, positive_freqs, freq_band_mask, freq_band_mask_2d, psd_centroids, laplacian, imatcacophony, idx
+        for i in range(n_act):
+            inffuncdx[:, :, i] = interaction_matrix[0:n_centroids//2, i].reshape(config.n_xsubapertures, config.n_xsubapertures, order='F')
+            inffuncdy[:, :, i] = interaction_matrix[n_centroids//2:n_centroids, i].reshape(config.n_xsubapertures, config.n_xsubapertures, order='F')
+   
+            laplacian[:, :, i] = (
+                deriv2D(inffuncdy[:, :, i], y=True) +
+                deriv2D(inffuncdx[:, :, i], x=True)
+            )
+            
+    return freq_pos, fft_centroids_real, actuator_fft_magnitude, freq_mask, interaction_matrix, laplacian

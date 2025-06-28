@@ -9,21 +9,18 @@ from dataclasses import dataclass, field
 class CacofoniConfig:
     telemetry_filename: str = "aocb0090.fits"
     param_filename: str = "imakaparm.txt"
-    mirror_modes_filename: str = "mm2a_norm.fits"
-    minimum_frequency: float = 4.0
-    maximum_frequency: float = 10.0
-    start_frequency: float = 5.0
-    num_actuators: int = 36
-    num_dimx_subapertures: int = 12
-    num_dimy_subapertures: int = 12
+    modal_filename: str = "mm2a_norm.fits"
+    
+    minimum_freq_hz: float = 4.0
+    maximum_freq_hz: float = 10.0
+    
+    n_actuators: int = 36
+    n_xsubapertures: int = 12
+    n_ysubapertures: int = 12
     
     closed: bool = False
     modal: bool = False
     thresh: bool = None
+    apply_hanning: bool = False
     laplacian: bool = True
-    
-    nwfs_max: int = 5
-    sampling_frequency: int = 996
-    
-    extension: list = field(default_factory=lambda: [1, 0, 0, 1, 1, 1, 1, 1])
-    
+    silent: bool = False
